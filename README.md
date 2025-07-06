@@ -1,6 +1,6 @@
 # Cidade Dorme Online - Bot para Discord
 
-<!-- ![Banner do Cidade Dorme Online] (https://imgur.com/zGdvBKo) -->
+![Imgur](https://imgur.com/zGdvBKo)
 
 Bem-vindo ao repositório do **Cidade Dorme Online**, um bot para Discord que traz a experiência clássica do jogo de dedução social (também conhecido como Máfia ou Werewolf) diretamente para o seu servidor. Com uma arquitetura robusta, o bot gerencia múltiplas partidas simultaneamente, garantindo uma jogabilidade fluida e organizada.
 
