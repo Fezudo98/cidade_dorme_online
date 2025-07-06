@@ -446,13 +446,14 @@ class GameFlowCog(commands.Cog):
         credits_message = (
             "Espero que tenha gostado da partida!\n"
             "Este bot foi desenvolvido com ❤️ por **Fernando Sérgio**.\n\n"
-            "Dúvidas, sugestões, reporte de bugs ou qualquer informação, procure o desenvolvedor:\n"
+            "**Gostou do bot?**\n"
+            "> Colabore com o desenvolvedor e tenha seu nome eternizado no projeto!\n"
+            "> Apoie em: **https://ko-fi.com/fezudo98**\n\n"
+            "Dúvidas, sugestões ou reporte de bugs, procure o desenvolvedor:\n"
             "> **GitHub:** Fezudo98\n"
             "> **Discord:** feezudo\n"
--           "> **Instagram:** sergioo_1918\n"
--           "> **LinkedIn:** [Clique aqui](https://www.linkedin.com/in/fernando-sérgio-786560373)"
-+           "> **Instagram:** sergioo_1918\n"
-+           "> **LinkedIn:** [Clique aqui](https://www.linkedin.com/in/fernando-sergio-786560373)"
+            "> **Instagram:** sergioo_1918\n"
+            "> **LinkedIn:** [Clique aqui](https://www.linkedin.com/in/fernando-sergio-786560373)"
         )
         await send_public_message(self.bot, game.text_channel, message=credits_message)
         # --- FIM DO CÓDIGO DE CRÉDITOS ---
