@@ -441,6 +441,22 @@ class GameFlowCog(commands.Cog):
         
         await send_public_message(self.bot, game.text_channel, embed=embed, file_path=image_path if image_path and os.path.exists(image_path) else None)
         
+        # --- CÓDIGO DE CRÉDITOS INSERIDO AQUI ---
+        await asyncio.sleep(2)
+        credits_message = (
+            "Espero que tenha gostado da partida!\n"
+            "Este bot foi desenvolvido com ❤️ por **Fernando Sérgio**.\n\n"
+            "Dúvidas, sugestões, reporte de bugs ou qualquer informação, procure o desenvolvedor:\n"
+            "> **GitHub:** Fezudo98\n"
+            "> **Discord:** feezudo\n"
+-           "> **Instagram:** sergioo_1918\n"
+-           "> **LinkedIn:** [Clique aqui](https://www.linkedin.com/in/fernando-sérgio-786560373)"
++           "> **Instagram:** sergioo_1918\n"
++           "> **LinkedIn:** [Clique aqui](https://www.linkedin.com/in/fernando-sergio-786560373)"
+        )
+        await send_public_message(self.bot, game.text_channel, message=credits_message)
+        # --- FIM DO CÓDIGO DE CRÉDITOS ---
+
         game.current_phase = "finished"
         game.winning_faction = faction
         if game.current_timer_task and not game.current_timer_task.done(): game.current_timer_task.cancel()
