@@ -65,6 +65,6 @@ Este projeto foi idealizado e desenvolvido inteiramente por:
 
 -   **GitHub:** [@Fezudo98](https://github.com/Fezudo98)
 -   **Instagram** [@sergioo_1918]
-
+-   **LinkedIN** [www.linkedin.com/in/fernando-sérgio-786560373]
 
 Sinta-se à vontade para contribuir, reportar bugs ou dar sugestões através das Issues deste repositório!
