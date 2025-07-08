@@ -1,19 +1,33 @@
 # config.py
 
 import os
+import json
+import logging
+
+logger = logging.getLogger(__name__)
+
+def _load_game_configs():
+    """Carrega as configurações de jogo de um arquivo JSON."""
+    try:
+        with open("game_configs.json", "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        logger.critical("Erro: O arquivo 'game_configs.json' não foi encontrado. O bot não pode funcionar sem ele.")
+        exit()
+    except json.JSONDecodeError:
+        logger.critical("Erro: O arquivo 'game_configs.json' está mal formatado. Corrija o JSON.")
+        exit()
+    except Exception as e:
+        logger.critical(f"Erro inesperado ao carregar 'game_configs.json': {e}")
+        exit()
+
+# Carrega as configurações do JSON
+_game_configs = _load_game_configs()
 
 # === Discord Bot Token ===
-# IMPORTANTE: Mover este token para um arquivo .env é a prática recomendada para segurança.
-# Crie um arquivo .env na raiz e adicione: BOT_TOKEN="seu_token_aqui"
-# O bot tentará carregar do .env primeiro. Este valor aqui é um fallback.
 BOT_TOKEN = os.getenv("BOT_TOKEN", "SEU_TOKEN_AQUI_COMO_FALLBACK")
 
-# === IDs do Servidor e Canais ===
-# REMOVIDO! Estas IDs não são mais globais. Elas serão determinadas dinamicamente
-# para cada partida e armazenadas na sua respectiva GameInstance.
-
 # === Caminhos para Arquivos e Pastas ===
-# Usar os.path.join para compatibilidade entre sistemas operacionais (Windows/Linux/Mac)
 ASSETS_PATH = "assets"
 IMAGES_PATH = os.path.join(ASSETS_PATH, "images")
 AUDIO_PATH = os.path.join(ASSETS_PATH, "audio")
@@ -36,13 +50,17 @@ EVENT_IMAGES = {
     "HEADHUNTER_WIN": "headhunter_win.png",
 }
 
-# === Configurações do Jogo ===
+# === Configurações do Jogo (carregadas do JSON) ===
 MIN_PLAYERS = 5
 MAX_PLAYERS = 16
 NIGHT_DURATION_SECONDS = 60
 DAY_DISCUSSION_DURATION_SECONDS = 45
 VOTE_DURATION_SECONDS = 30
 MAX_GAME_NIGHTS = 7
+GAME_COMPOSITIONS = _game_configs.get("GAME_COMPOSITIONS", {})
+ROLE_POOL = _game_configs.get("ROLE_POOL", {})
+HUMOR_MESSAGES = _game_configs.get("HUMOR_MESSAGES", {})
+
 
 # === Configuração de Áudios ===
 AUDIO_ENABLED = True
@@ -65,36 +83,17 @@ AUDIO_FILES = {
     "HEADHUNTER_WIN": ["headhunter_win.mp3"],
 }
 
-# === Sistema de Composição e Sorteio de Papéis ===
-GAME_COMPOSITIONS = {
-    "5": {"Cidade": 4, "Vilões": 1, "Solo": 0},
-    "6": {"Cidade": 5, "Vilões": 1, "Solo": 0},
-    "7": {"Cidade": 5, "Vilões": 1, "Solo": 1},
-    "8": {"Cidade": 5, "Vilões": 2, "Solo": 1},
-    "9": {"Cidade": 5, "Vilões": 2, "Solo": 2},
-    "10": {"Cidade": 6, "Vilões": 3, "Solo": 1},
-    "11": {"Cidade": 6, "Vilões": 3, "Solo": 2},
-    "12": {"Cidade": 7, "Vilões": 3, "Solo": 2},
-    "13": {"Cidade": 7, "Vilões": 3, "Solo": 3},
-    "14": {"Cidade": 8, "Vilões": 4, "Solo": 2},
-    "15": {"Cidade": 8, "Vilões": 4, "Solo": 3},
-    "16": {"Cidade": 9, "Vilões": 4, "Solo": 3},
-}
-
-ROLE_POOL = {
-    "Cidade": {
-        "essenciais": ["Prefeito", "Guarda-costas", "Xerife", "Anjo"],
-        "investigadores": ["Detetive", "Vidente de Aura", "Médium"]
-    },
-    "Vilões": {
-        "essenciais": ["Assassino Alfa"],
-        "outros": ["Assassino Júnior", "Cúmplice"]
-    },
-    "Solo": {
-        "exclusivos": ["Palhaço", "Caçador de Cabeças"], # Apenas um destes pode aparecer por jogo
-        "outros": ["Bruxo", "Fofoqueiro", "Cupido", "Praga", "Corruptor"]
-    }
-}
-
 # === Mensagens ===
 MSG_BOT_STARTING = "Ligando os motores... e me preparando para gerenciar múltiplas realidades de treta!"
+MSG_CREDITS = (
+    "Espero que tenha gostado da partida!\n"
+    "Este bot foi desenvolvido com ❤️ por **Fernando Sérgio**.\n\n"
+    "**Gostou do bot?**\n"
+    "> Colabore com o desenvolvedor e tenha seu nome eternizado no projeto!\n"
+    "> Apoie em: **https://ko-fi.com/fezudo98**\n\n"
+    "Dúvidas, sugestões ou reporte de bugs, procure o desenvolvedor:\n"
+    "> **GitHub:** Fezudo98\n"
+    "> **Discord:** feezudo\n"
+    "> **Instagram:** sergioo_1918\n"
+    "> **LinkedIn:** [Clique aqui](https://www.linkedin.com/in/fernando-sergio-786560373)"
+)

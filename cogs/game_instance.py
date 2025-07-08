@@ -3,11 +3,9 @@
 import discord
 import logging
 from typing import Optional, List, Dict, Tuple, Any
-import asyncio # <--- CORREÇÃO: Adicionando a importação que faltava
+import asyncio
 
-# Importar a classe Role para type hinting
 from roles.base_role import Role
-# Importar outras classes de papéis para o método reset_flags_for_player
 from roles.cidade_roles import Xerife, Prefeito, Medium
 from roles.viloes_roles import AssassinoAlfa, Cumplice
 from roles.solo_roles import Bruxo, Praga
@@ -16,6 +14,13 @@ logger = logging.getLogger(__name__)
 
 class PlayerState:
     """Classe para armazenar o estado individual de um jogador dentro de uma partida."""
+    # __slots__ previne a criação de __dict__ por instância, economizando RAM.
+    __slots__ = (
+        'member', 'role', 'is_alive', 'protected_by', 'is_corrupted', 
+        'is_infected', 'possession_points', 'bodyguard_vest_used', 
+        'is_ghost', 'ghost_master_id', 'is_confused'
+    )
+
     def __init__(self, member: discord.Member):
         self.member = member
         self.role: Optional[Role] = None
@@ -51,8 +56,25 @@ class PlayerState:
 class GameInstance:
     """
     Classe para gerenciar o estado completo de UMA partida de Cidade Dorme.
-    Cada jogo ativo terá sua própria instância desta classe.
     """
+    # Aplicando __slots__ também na GameInstance para consistência e pequena economia.
+    __slots__ = (
+        'bot', 'text_channel', 'voice_channel', 'guild', 'game_master',
+        'current_phase', 'current_night', 'current_day', 'pending_resolution',
+        'current_timer_task', 'players', 'roles_in_game', 'night_actions',
+        'day_votes', 'day_skip_votes', 'killers', 'death_reasons',
+        'successful_major_actions', 'lovers', 'headhunter_info', 'sabotage_used',
+        'decreto_used', 'fraud_used', 'witch_potion_used', 'angel_revive_used',
+        'medium_talk_used', 'plague_exterminate_used', 'last_protected_target',
+        'last_corrupted_target', 'last_confused_target', 'fofoqueiro_comparisons',
+        'accomplice_target_info', 'decreto_active', 'sabotage_blocked',
+        'fraud_active', 'sheriff_shot_this_day', 'night_revive_targets',
+        'bruxo_major_action', 'plague_patient_zero_id', 'plague_player_id',
+        'sheriff_shots_fired', 'sheriff_revealed', 'prefeito_saved_once',
+        'junior_marked_target_id', 'fofoqueiro_marked_target_id',
+        'winning_faction', 'first_death_id', 'skip_villain_kill'
+    )
+
     def __init__(self, bot: discord.Bot, text_channel: discord.TextChannel, voice_channel: discord.VoiceChannel, game_master: discord.Member):
         # --- Contexto da Partida ---
         self.bot = bot
@@ -66,7 +88,6 @@ class GameInstance:
         self.current_night = 0
         self.current_day = 0
         self.pending_resolution: bool = False
-        # CORREÇÃO: A anotação de tipo agora funciona pois asyncio foi importado
         self.current_timer_task: Optional[asyncio.Task] = None
         
         # --- Dicionários de Estado ---
@@ -89,6 +110,7 @@ class GameInstance:
         self.angel_revive_used: bool = False
         self.medium_talk_used: bool = False
         self.plague_exterminate_used: bool = False
+        self.skip_villain_kill: bool = False
         self.last_protected_target: Dict[int, int] = {}
         self.last_corrupted_target: Dict[int, int] = {}
         self.last_confused_target: Dict[int, int] = {}
@@ -131,14 +153,22 @@ class GameInstance:
         return [state for state in self.players.values() if state.is_alive]
 
     def get_player_by_id(self, user_id: int) -> Optional[discord.Member]:
-        if player_state := self.players.get(user_id):
-            return player_state.member
+        player_state = self.players.get(user_id)
+        # Se não temos cache de membros, o objeto 'member' pode ficar desatualizado.
+        # É mais seguro buscar na guild se a referência existir.
+        if player_state:
+            # Tenta retornar a referência que já temos
+            if player_state.member:
+                return player_state.member
+            # Se a referência sumiu (improvável mas possível), busca na guild
+            return self.guild.get_member(user_id)
         return None
     
     def clear_nightly_states(self):
         logger.info(f"[Jogo #{self.text_channel.id}] Resetando estados noturnos.")
         self.night_actions.clear()
         self.night_revive_targets.clear()
+        self.skip_villain_kill = False # Resetar aqui
         for player_state in self.players.values():
             player_state.protected_by = None
             player_state.is_corrupted = False

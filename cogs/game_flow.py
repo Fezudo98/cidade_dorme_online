@@ -10,7 +10,6 @@ from typing import List, Dict, Any, Optional
 
 import config
 from .game_instance import GameInstance
-# CORREÇÃO: Importando as funções que faltavam de utils.py
 from .utils import send_public_message, get_random_humor, send_dm_safe
 from roles.solo_roles import Praga, Cupido, Corruptor, Palhaco, Bruxo, Fofoqueiro, CacadorDeCabecas
 from roles.viloes_roles import AssassinoAlfa, AssassinoJunior, Cumplice
@@ -412,7 +411,7 @@ class GameFlowCog(commands.Cog):
 
     async def _check_and_award_lovers_win(self, game: GameInstance, winners: List[discord.Member]):
         if game.lovers:
-            lover1_id, lover2_id = game.lovers # CORREÇÃO: Variáveis definidas aqui
+            lover1_id, lover2_id = game.lovers
             winner_ids = {w.id for w in winners}
             if lover1_id in winner_ids or lover2_id in winner_ids:
                 if (l1_state := game.get_player_state_by_id(lover1_id)) and l1_state.is_alive and l1_state.member not in winners: winners.append(l1_state.member)
@@ -441,22 +440,9 @@ class GameFlowCog(commands.Cog):
         
         await send_public_message(self.bot, game.text_channel, embed=embed, file_path=image_path if image_path and os.path.exists(image_path) else None)
         
-        # --- CÓDIGO DE CRÉDITOS INSERIDO AQUI ---
+        # Envia a mensagem de créditos a partir do config.py
         await asyncio.sleep(2)
-        credits_message = (
-            "Espero que tenha gostado da partida!\n"
-            "Este bot foi desenvolvido com ❤️ por **Fernando Sérgio**.\n\n"
-            "**Gostou do bot?**\n"
-            "> Colabore com o desenvolvedor e tenha seu nome eternizado no projeto!\n"
-            "> Apoie em: **https://ko-fi.com/fezudo98**\n\n"
-            "Dúvidas, sugestões ou reporte de bugs, procure o desenvolvedor:\n"
-            "> **GitHub:** Fezudo98\n"
-            "> **Discord:** feezudo\n"
-            "> **Instagram:** sergioo_1918\n"
-            "> **LinkedIn:** [Clique aqui](https://www.linkedin.com/in/fernando-sergio-786560373)"
-        )
-        await send_public_message(self.bot, game.text_channel, message=credits_message)
-        # --- FIM DO CÓDIGO DE CRÉDITOS ---
+        await send_public_message(self.bot, game.text_channel, message=config.MSG_CREDITS)
 
         game.current_phase = "finished"
         game.winning_faction = faction

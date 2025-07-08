@@ -73,16 +73,22 @@ class GameManager:
         else:
             logger.warning(f"Tentativa de finalizar um jogo inexistente no canal {channel_id}.")
 
-# Define as intenções (Intents)
+# Define as intenções (Intents) - mantendo as que precisamos
 intents = discord.Intents.default()
-intents.members = True
 intents.voice_states = True
 intents.messages = True
 intents.message_content = True
+# A intent de members é necessária para buscar membros, mesmo sem cache
+intents.members = True 
 
-# Inicializa o bot e anexa o manager
-bot = discord.Bot(intents=intents)
+# Inicializa o bot com cache otimizado
+# MemberCacheFlags.none() é a chave para a economia de RAM
+bot = discord.Bot(
+    intents=intents,
+    member_cache_flags=discord.MemberCacheFlags.none()
+)
 bot.game_manager = GameManager(bot)
+
 
 # --- Carregamento dos Cogs ---
 cogs_dir = os.path.join(os.path.dirname(__file__), "cogs")

@@ -26,8 +26,6 @@ async def search_roles(ctx: discord.AutocompleteContext) -> list:
 
 # --- Funções Utilitárias ---
 
-# REMOVIDO: get_text_channel e get_voice_channel, pois as IDs não são mais globais.
-
 async def send_public_message(bot: commands.Bot, channel: discord.TextChannel, message: Optional[str] = None, embed: Optional[discord.Embed] = None, file_path: Optional[str] = None, allowed_mentions: Optional[discord.AllowedMentions] = None):
     """
     Envia uma mensagem para um canal de texto público especificado.
@@ -60,15 +58,10 @@ async def send_dm_safe(member: discord.Member, message: str = None, embed: disco
         logger.warning(f"Não foi possível enviar DM para {member.display_name}: {e}")
 
 # --- Mensagens Humorísticas (Centralizadas) ---
-HUMOR_MESSAGES = {
-    "NIGHT_START": ["A lua sobe, as máscaras caem... ou são colocadas? 🌙", "Shhh! É hora de fazer maldades... ou só de fingir que está dormindo mesmo."],
-    "DAY_START": ["O sol nasceu na fazendinha... digo, na cidade! Quem não acordou hoje? ☀️", "Bom dia, raio de sol! Ou nem tanto, se você foi alvo de alguém."],
-    "VOTE_START": ["Acendam as tochas! Peguem os forcados! (Metaforicamente, claro). Hora de decidir quem vai pro olho da rua. 🔥", "Democracia em ação! Ou só a lei do mais forte mesmo. Votem!"],
-}
-
 def get_random_humor(category_key: str) -> str:
     """Retorna uma frase humorística aleatória de uma categoria."""
-    return random.choice(HUMOR_MESSAGES.get(category_key, [""]))
+    # Agora usa a variável importada de config.py
+    return random.choice(config.HUMOR_MESSAGES.get(category_key, [""]))
 
 class UtilsCog(commands.Cog):
     """Cog para funções utilitárias, comandos informativos e de administração."""

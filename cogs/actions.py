@@ -146,7 +146,7 @@ class ActionsCog(commands.Cog):
             tasks.append(send_dm_safe(villains[0].member, message=message))
         await asyncio.gather(*tasks)
 
-    # --- COMANDOS ---
+    # --- COMANDOS (Sem alterações) ---
     
     @commands.slash_command(name="decreto", description="(Prefeito) Amplifica o poder de voto da Cidade (1x por jogo).")
     @check_game_phase(["day_voting"])
@@ -597,86 +597,89 @@ class ActionsCog(commands.Cog):
             results["sound_event"] = "PLAYER_DEATH"
         return results
 
-    async def resolve_night_actions(self, game: GameInstance) -> Dict[str, Any]:
-        logger.info(f"[Jogo #{game.text_channel.id}] --- Resolvendo Ações Noturnas ---")
-        results = {"killed_players": [], "revived_players": [], "sound_events": [], "plague_kill_count": 0, "dm_messages": {}, "public_messages": [], "game_over": False}
-        for p_state in game.players.values(): results["dm_messages"][p_state.member.id] = []
-        
-        for player_id, action_data in list(game.night_actions.items()):
-            if action_data["action"] == "confuse":
-                target_state = game.get_player_state_by_id(action_data["target_id"])
-                if target_state: target_state.is_confused = True
+    # --- MÉTODOS PRIVADOS DE RESOLUÇÃO NOTURNA (REFATORADOS) ---
 
-        for player_id, action_data in list(game.night_actions.items()):
-            player_state = game.get_player_state_by_id(player_id)
-            if player_state and player_state.is_confused and "target_id" in action_data:
+    async def _apply_status_effects(self, game: GameInstance, sorted_actions: List[Any], results: Dict):
+        """Aplica efeitos que precisam ser resolvidos primeiro, como confusão e corrupção."""
+        for player_id, action_data in sorted_actions:
+            action_name = action_data["action"]
+            target_id = action_data.get("target_id")
+            
+            # Confusão é aplicada primeiro para afetar outras ações
+            if action_name == "confuse":
+                if target_state := game.get_player_state_by_id(target_id):
+                    target_state.is_confused = True
+
+        # Aplica o efeito da confusão nas ações registradas
+        for player_id, action_data in game.night_actions.items():
+            if (player_state := game.get_player_state_by_id(player_id)) and player_state.is_confused and "target_id" in action_data:
                 original_target_id = action_data["target_id"]
-                possible_targets_query = [p.member.id for p in game.players.values() if not p.is_alive] if action_data["action"] in ["angel_revive", "witch_revive"] else [p.member.id for p in game.get_alive_players_states()]
+                is_revive = action_data["action"] in ["angel_revive", "witch_revive"]
+                
+                possible_targets_query = [p.member.id for p in game.players.values() if not p.is_alive] if is_revive else [p.member.id for p in game.get_alive_players_states()]
                 possible_targets = [pid for pid in possible_targets_query if pid not in [player_id, original_target_id]]
+                
                 if possible_targets:
                     new_target_id = random.choice(possible_targets)
                     action_data["target_id"] = new_target_id
                     logger.info(f"Ação de {player_state.member.display_name} confundida! Novo alvo: {game.get_player_by_id(new_target_id).display_name}")
                     results["dm_messages"].setdefault(player_id, []).append("😵‍💫 **Que tontura!** Sua ação saiu toda errada.")
-                
-        sorted_actions = sorted(game.night_actions.items(), key=lambda item: item[1]["priority"])
-        
-        villain_votes, kill_attempts, final_deaths, revived_this_night = {}, {}, [], []
-        skip_villain_kill = False
-        night_visits = {p_id: {'visited_by': set(), 'visited': set()} for p_id in game.players}
-        haunt_action = None
-        
-        for player_id, action_data in sorted_actions:
-            target_id = action_data.get("target_id")
-            if target_id:
-                night_visits[target_id]['visited_by'].add(player_id)
-                night_visits[player_id]['visited'].add(target_id)
-            if action_data["action"] == "haunt":
-                haunt_action = {"player_id": player_id, **action_data}
 
+        # Aplica corrupção e proteção
         for player_id, action_data in sorted_actions:
             action_name = action_data["action"]
+            target_id = action_data.get("target_id")
+            
+            if action_name == "corrupt":
+                if target_state := game.get_player_state_by_id(target_id):
+                    target_state.is_corrupted = True
+                    results["dm_messages"].setdefault(target_id, []).append("😵‍💫 Sua mente foi invadida! Você não consegue usar sua habilidade esta noite.")
+            
+            elif action_name == "protect":
+                protector_state = game.get_player_state_by_id(player_id)
+                if protector_state and not protector_state.is_corrupted:
+                    if target_state := game.get_player_state_by_id(target_id):
+                        target_state.protected_by = player_id
+
+    async def _resolve_unique_actions(self, game: GameInstance, sorted_actions: List[Any], results: Dict):
+        """Resolve ações únicas como Possessão, Cupido e outras que alteram o estado do jogo."""
+        for player_id, action_data in sorted_actions:
+            action_name = action_data["action"]
+            target_id = action_data.get("target_id")
+            player_state = game.get_player_state_by_id(player_id)
+            if not player_state or player_state.is_corrupted: continue
+
             if action_name == "possess":
-                skip_villain_kill = True
-                target_id = action_data["target_id"]
-                target_state = game.get_player_state_by_id(target_id)
-                if target_state:
+                game.skip_villain_kill = True
+                if target_state := game.get_player_state_by_id(target_id):
                     target_state.possession_points += 1
-                    logger.info(f"{target_state.member.display_name} tem {target_state.possession_points} pontos de possessão.")
                     results["dm_messages"].setdefault(player_id, []).append(f"Você adicionou +1 ponto de possessão a {target_state.member.display_name}. Total: {target_state.possession_points}/3.")
                     if target_state.possession_points >= 3:
-                        original_role_name = target_state.role.name
                         target_state.role = AssassinoSimples()
                         await send_dm_safe(target_state.member, f"Sua mente foi quebrada! Você agora é um **Assassino Simples**.")
                         all_villains = [p.member.display_name for p in game.players.values() if p.role.faction == "Vilões" and p.is_alive]
                         await send_dm_safe(target_state.member, f"Seus novos companheiros são: **{', '.join(all_villains)}**")
-                        villain_message = f"**{target_state.member.display_name}** foi corrompido e agora é um Assassino Simples."
                         for p_state in game.players.values():
                             if p_state.role.faction == "Vilões" and p_state.is_alive and p_state.member.id != target_id:
-                                await send_dm_safe(p_state.member, villain_message)
+                                await send_dm_safe(p_state.member, f"**{target_state.member.display_name}** foi corrompido e agora é um Assassino Simples.")
+            
             elif action_name == "cupid_match":
                 lover1_id, lover2_id = action_data["lover1_id"], action_data["lover2_id"]
                 game.lovers = (lover1_id, lover2_id)
-                lover1, lover2 = game.get_player_by_id(lover1_id), game.get_player_by_id(lover2_id)
-                if lover1 and lover2:
+                if (lover1 := game.get_player_by_id(lover1_id)) and (lover2 := game.get_player_by_id(lover2_id)):
                     dm_msg1 = f"💘 O Cupido acertou você! Seu grande amor é **{lover2.display_name}**. Se um de vocês morrer, o outro morrerá junto."
                     dm_msg2 = f"💘 O Cupido acertou você! Seu grande amor é **{lover1.display_name}**. Se um de vocês morrer, o outro morrerá junto."
                     results["dm_messages"].setdefault(lover1_id, []).append(dm_msg1)
                     results["dm_messages"].setdefault(lover2_id, []).append(dm_msg2)
-            elif action_name == "corrupt":
-                target_state = game.get_player_state_by_id(action_data["target_id"])
-                if target_state:
-                    target_state.is_corrupted = True
-                    results["dm_messages"].setdefault(action_data["target_id"], []).append("😵‍💫 Sua mente foi invadida! Você não consegue usar sua habilidade esta noite.")
-            elif action_name == "protect":
-                protector_state = game.get_player_state_by_id(player_id)
-                if protector_state and not protector_state.is_corrupted:
-                    target_state = game.get_player_state_by_id(action_data["target_id"])
-                    if target_state: target_state.protected_by = player_id
-        
+
+    def _gather_kill_attempts(self, game: GameInstance, sorted_actions: List[Any]) -> Dict[int, List[tuple]]:
+        """Coleta todos os votos e tentativas de assassinato da noite."""
+        kill_attempts = {}
+        villain_votes = {}
         for player_id, action_data in sorted_actions:
             player_state = game.get_player_state_by_id(player_id)
-            if not player_state or not player_state.role or player_state.is_corrupted: continue
+            if not player_state or player_state.is_corrupted: continue
+            
             action = action_data["action"]
             if action == "villain_vote":
                 weight = 2 if isinstance(action_data["role"], AssassinoAlfa) else 1
@@ -685,15 +688,22 @@ class ActionsCog(commands.Cog):
                 kill_attempts.setdefault(action_data["target_id"], []).append(("witch", player_id))
                 game.witch_potion_used = True
         
-        if villain_votes and not skip_villain_kill:
+        if villain_votes and not game.skip_villain_kill:
             target_id = max(villain_votes, key=villain_votes.get)
             voters = [p_id for p_id, action in game.night_actions.items() if action.get("action") == "villain_vote" and action.get("target_id") == target_id]
             kill_attempts.setdefault(target_id, []).append(("villain", voters))
+        
+        return kill_attempts
 
+    def _resolve_deaths(self, game: GameInstance, kill_attempts: Dict, results: Dict) -> List[tuple]:
+        """Processa as tentativas de morte, considerando proteções, e retorna quem morreu."""
+        final_deaths = []
         for target_id, killers_info in kill_attempts.items():
             target_state = game.get_player_state_by_id(target_id)
             if not target_state or not target_state.is_alive: continue
+            
             attack_source, attacker_id = killers_info[0]
+            
             if target_state.protected_by and attack_source == 'villain':
                 protector_state = game.get_player_state_by_id(target_state.protected_by)
                 if protector_state:
@@ -706,71 +716,97 @@ class ActionsCog(commands.Cog):
                         results["sound_events"].append("PLAYER_DEATH")
                         results["public_messages"].append(f"🛡️ O **Guarda-Costas** foi encontrado morto no lugar de {target_state.member.display_name}!")
                 continue
+            
             if isinstance(target_state.role, GuardaCostas) and not target_state.bodyguard_vest_used:
                 target_state.bodyguard_vest_used = True
                 results["sound_events"].append("PROTECTION_SUCCESS")
                 results["dm_messages"].setdefault(target_id, []).append("🛡️ Você foi atacado, mas sua resistência o salvou!")
                 continue
+            
             final_deaths.append((target_id, attack_source, attacker_id))
+        return final_deaths
 
+    async def _resolve_revivals(self, game: GameInstance, sorted_actions: List[Any], final_deaths: List[tuple], results: Dict) -> List[tuple]:
+        """Processa as tentativas de reviver e retorna quem foi revivido."""
+        revived_this_night = []
         for player_id, action_data in sorted_actions:
             player_state = game.get_player_state_by_id(player_id)
             if not player_state or player_state.is_corrupted: continue
+            
             action = action_data["action"]
             if action in ["angel_revive", "witch_revive"]:
                 target_id = action_data["target_id"]
                 target_state = game.get_player_state_by_id(target_id)
+                
                 if target_state and not target_state.is_alive and not any(d[0] == target_id for d in final_deaths):
                     target_state.revive()
                     revived_this_night.append((target_id, player_id))
                     results["sound_events"].append("PLAYER_REVIVE")
+                    
                     if action == "witch_revive": game.witch_potion_used = True
                     if action == "angel_revive": game.angel_revive_used = True
                     game.reset_flags_for_player(target_id)
+                    
                     if isinstance(target_state.role, Prefeito) and target_state.ghost_master_id:
-                        medium_state = game.get_player_state_by_id(target_state.ghost_master_id)
-                        if medium_state:
+                        if medium_state := game.get_player_state_by_id(target_state.ghost_master_id):
                             game.medium_talk_used = False
                             await send_dm_safe(medium_state.member, "O Prefeito foi revivido! Seu poder foi restaurado.")
-        
-        final_deaths = [d for d in final_deaths if d[0] not in [r[0] for r in revived_this_night]]
+        return revived_this_night
 
+    async def _resolve_information_and_plague(self, game: GameInstance, sorted_actions: List[Any], final_deaths: List[tuple], night_visits: Dict, results: Dict):
+        """Resolve ações de informação (Detetive, Fantasma) e a lógica da Praga."""
         for player_id, action_data in sorted_actions:
-            if player_id in [d[0] for d in final_deaths] or (p_state := game.get_player_state_by_id(player_id)) is None or p_state.is_corrupted: continue
-            action_name = action_data["action"]
-            if action_name == "mark_detective":
-                t1_id, t2_id = action_data.get("target1_id"), action_data.get("target2_id")
-                killed_this_night = [d[0] for d in final_deaths]
-                marked_killed_ids = [tid for tid in [t1_id, t2_id] if tid in killed_this_night]
+            p_state = game.get_player_state_by_id(player_id)
+            if not p_state or p_state.is_corrupted: continue
+            
+            if action_data["action"] == "mark_detective":
+                killed_this_night_ids = [d[0] for d in final_deaths]
+                marked_ids = [action_data.get("target1_id"), action_data.get("target2_id")]
+                marked_killed_ids = [tid for tid in marked_ids if tid in killed_this_night_ids and tid is not None]
+                
                 if not marked_killed_ids:
                     results["dm_messages"].setdefault(player_id, []).append("🕵️ Sua vigília foi tranquila. Nenhum dos seus alvos morreu.")
                 else:
                     killed_id = marked_killed_ids[0]
                     death_info = next((d for d in final_deaths if d[0] == killed_id), None)
-                    killed_member = game.get_player_by_id(killed_id)
-                    if death_info and killed_member:
+                    if (killed_member := game.get_player_by_id(killed_id)) and death_info:
                         _, _, killer_info = death_info
                         killer_ids = killer_info if isinstance(killer_info, list) else [killer_info]
-                        if killer_ids:
-                            killer_member = game.get_player_by_id(random.choice(killer_ids))
+                        if killer_ids and (killer_member := game.get_player_by_id(random.choice(killer_ids))):
                             innocent_pool = [p.member for p in game.get_alive_players_states() if p.member.id not in [player_id, killed_id, killer_member.id]]
                             clue_members = [killer_member, random.choice(innocent_pool)] if innocent_pool else [killer_member]
                             random.shuffle(clue_members)
                             info_msg = f"🕵️ {killed_member.display_name} foi morto. Um destes está envolvido: **{', '.join([m.display_name for m in clue_members])}**."
                         else: info_msg = f"🕵️ {killed_member.display_name} foi morto, mas o assassino é um mistério."
                         results["dm_messages"].setdefault(player_id, []).append(info_msg)
-            elif action_name == "plague_exterminate":
-                if not game.plague_exterminate_used:
-                    game.plague_exterminate_used = True
-                    infected_to_die_ids = {pid for pid, pstate in game.players.items() if pstate.is_infected and pstate.is_alive}
-                    if len(infected_to_die_ids) >= 4 and (praga_member := game.get_player_by_id(player_id)) and (game_flow_cog := self.bot.get_cog("GameFlowCog")):
-                        end_args = {"title": "Vitória da Praga!", "winners": [praga_member], "faction": "Solo (Praga)", "reason": f"A Praga eliminou {len(infected_to_die_ids)} jogadores!", "sound_event_key": "PLAGUE_WIN"}
-                        await game_flow_cog.end_game(game, **end_args); results["game_over"] = True; return results
-                    if infected_to_die_ids:
-                        results["plague_kill_count"] = len(infected_to_die_ids)
-                        for infected_id in infected_to_die_ids:
-                            final_deaths.append((infected_id, "killed_by_plague", player_id))
-        
+
+        haunt_action = next((data for _, data in sorted_actions if data["action"] == "haunt"), None)
+        if haunt_action:
+            haunt_target_id, ghost_id = haunt_action["target_id"], haunt_action["player_id"]
+            if (ghost_state := game.get_player_state_by_id(ghost_id)) and ghost_state.ghost_master_id:
+                medium_id = ghost_state.ghost_master_id
+                visits = night_visits.get(haunt_target_id, {'visited_by': set(), 'visited': set()})
+                visited_by_names = [game.get_player_by_id(pid).display_name for pid in visits['visited_by'] if pid != ghost_id]
+                visited_names = [game.get_player_by_id(pid).display_name for pid in visits['visited']]
+                report = (f"Relatório da Assombração sobre **{game.get_player_by_id(haunt_target_id).display_name}**:\n"
+                          f"- Foi visitado por: **{', '.join(visited_by_names) if visited_by_names else 'Ninguém'}**\n"
+                          f"- Visitou: **{', '.join(visited_names) if visited_names else 'Ninguém'}**")
+                results["dm_messages"].setdefault(ghost_id, []).append(report)
+                results["dm_messages"].setdefault(medium_id, []).append(report)
+
+        prague_exterminate_action = next((data for _, data in sorted_actions if data["action"] == "plague_exterminate"), None)
+        if prague_exterminate_action and not game.plague_exterminate_used:
+            game.plague_exterminate_used = True
+            infected_to_die_ids = {pid for pid, pstate in game.players.items() if pstate.is_infected and pstate.is_alive}
+            if len(infected_to_die_ids) >= 4 and (praga_member := game.get_player_by_id(prague_exterminate_action["player_id"])) and (game_flow_cog := self.bot.get_cog("GameFlowCog")):
+                end_args = {"title": "Vitória da Praga!", "winners": [praga_member], "faction": "Solo (Praga)", "reason": f"A Praga eliminou {len(infected_to_die_ids)} jogadores!", "sound_event_key": "PLAGUE_WIN"}
+                await game_flow_cog.end_game(game, **end_args); results["game_over"] = True
+                return
+            if infected_to_die_ids:
+                results["plague_kill_count"] = len(infected_to_die_ids)
+                for infected_id in infected_to_die_ids:
+                    final_deaths.append((infected_id, "killed_by_plague", prague_exterminate_action["player_id"]))
+
         if game.plague_patient_zero_id and (pz_state := game.get_player_state_by_id(game.plague_patient_zero_id)) and pz_state.is_alive:
             newly_infected = []
             def infect_player(player_id):
@@ -783,21 +819,33 @@ class ActionsCog(commands.Cog):
                 for infected_id in newly_infected:
                     results["dm_messages"].setdefault(infected_id, []).append("🤒 Você se sente febril... Você foi infectado pela Praga!")
 
-        if haunt_action:
-            haunt_target_id, ghost_id = haunt_action["target_id"], haunt_action["player_id"]
-            if (ghost_state := game.get_player_state_by_id(ghost_id)) and ghost_state.ghost_master_id:
-                medium_id = ghost_state.ghost_master_id
-                visits = night_visits.get(haunt_target_id, {})
-                visited_by_ids, visited_ids = visits.get('visited_by', set()), visits.get('visited', set())
-                report_lines = [f"Relatório da Assombração sobre **{game.get_player_by_id(haunt_target_id).display_name}**:"]
-                visited_by_names = [game.get_player_by_id(pid).display_name for pid in visited_by_ids if pid != ghost_id]
-                report_lines.append(f"- Foi visitado por: **{', '.join(visited_by_names) if visited_by_names else 'Ninguém'}**")
-                visited_names = [game.get_player_by_id(pid).display_name for pid in visited_ids]
-                report_lines.append(f"- Visitou: **{', '.join(visited_names) if visited_names else 'Ninguém'}**")
-                report_message = "\n".join(report_lines)
-                results["dm_messages"].setdefault(ghost_id, []).append(report_message)
-                results["dm_messages"].setdefault(medium_id, []).append(report_message)
+    # --- MÉTODO PRINCIPAL DE RESOLUÇÃO (ORQUESTRADOR) ---
 
+    async def resolve_night_actions(self, game: GameInstance) -> Dict[str, Any]:
+        logger.info(f"[Jogo #{game.text_channel.id}] --- Resolvendo Ações Noturnas ---")
+        results = {"killed_players": [], "revived_players": [], "sound_events": [], "plague_kill_count": 0, "dm_messages": {}, "public_messages": [], "game_over": False}
+        for p_state in game.players.values(): results["dm_messages"][p_state.member.id] = []
+        
+        sorted_actions = sorted(game.night_actions.items(), key=lambda item: item[1]["priority"])
+        night_visits = {p_id: {'visited_by': set(), 'visited': set()} for p_id in game.players}
+        for player_id, action_data in sorted_actions:
+            if target_id := action_data.get("target_id"):
+                night_visits[target_id]['visited_by'].add(player_id)
+                night_visits[player_id]['visited'].add(target_id)
+
+        await self._apply_status_effects(game, sorted_actions, results)
+        await self._resolve_unique_actions(game, sorted_actions, results)
+        if results.get("game_over"): return results
+        
+        kill_attempts = self._gather_kill_attempts(game, sorted_actions)
+        deaths_before_revive = self._resolve_deaths(game, kill_attempts, results)
+        revived_this_night = await self._resolve_revivals(game, sorted_actions, deaths_before_revive, results)
+        
+        final_deaths = [d for d in deaths_before_revive if d[0] not in [r[0] for r in revived_this_night]]
+        
+        await self._resolve_information_and_plague(game, sorted_actions, final_deaths, night_visits, results)
+        if results.get("game_over"): return results
+        
         if final_deaths: results["killed_players"] = final_deaths
         if revived_this_night: results["revived_players"] = revived_this_night
         
