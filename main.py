@@ -97,7 +97,8 @@ if not os.path.isdir(cogs_dir):
     logger.error(f"Diretório de Cogs não encontrado: {cogs_dir}")
 else:
     for filename in os.listdir(cogs_dir):
-        if filename.endswith('.py') and not filename.startswith('__'):
+        # NOVA CONDIÇÃO: Ignora 'game_instance.py'
+        if filename.endswith('.py') and not filename.startswith('__') and filename != 'game_instance.py': 
             cog_name = f'cogs.{filename[:-3]}'
             try:
                 bot.load_extension(cog_name)
