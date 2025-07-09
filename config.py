@@ -97,3 +97,17 @@ MSG_CREDITS = (
     "> **Instagram:** sergioo_1918\n"
     "> **LinkedIn:** [Clique aqui](https://www.linkedin.com/in/fernando-sergio-786560373)"
 )
+
+# === Versão do Bot ===
+def get_bot_version():
+    """Lê a versão do arquivo version.txt."""
+    try:
+        # Garante que o caminho seja relativo ao local do script
+        version_file_path = os.path.join(os.path.dirname(__file__), 'version.txt')
+        with open(version_file_path, "r") as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        logger.warning("Arquivo 'version.txt' não encontrado. Usando 'dev' como versão.")
+        return "dev" # Retorna um placeholder se o arquivo não for encontrado
+
+BOT_VERSION = get_bot_version()
