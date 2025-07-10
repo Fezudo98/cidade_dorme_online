@@ -81,11 +81,15 @@ intents.message_content = True
 # A intent de members é necessária para buscar membros, mesmo sem cache
 intents.members = True 
 
-# Inicializa o bot com cache otimizado
-# MemberCacheFlags.none() é a chave para a economia de RAM
+# Cria um objeto de flags de cache e habilita o cache APENAS para membros em voz.
+# Isso nos dá o melhor de dois mundos: baixo consumo de RAM e detecção de jogadores.
+cache_flags = discord.MemberCacheFlags.none()
+cache_flags.voice = True
+
+# Inicializa o bot com o cache inteligente
 bot = discord.Bot(
     intents=intents,
-    member_cache_flags=discord.MemberCacheFlags.none()
+    member_cache_flags=cache_flags
 )
 bot.game_manager = GameManager(bot)
 
