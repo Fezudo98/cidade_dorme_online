@@ -102,7 +102,6 @@ class GameSetupCog(commands.Cog):
         tasks = []
         for i, player_member in enumerate(players):
             role_instance = role_instances[i]
-            # O estado do jogador já foi criado, agora apenas atribuímos o papel
             player_state = game.get_player_state_by_id(player_member.id)
             if not player_state:
                 logger.error(f"[Jogo #{game.text_channel.id}] Erro crítico: Estado não encontrado para {player_member.display_name}.")
@@ -112,7 +111,6 @@ class GameSetupCog(commands.Cog):
         
         await asyncio.gather(*tasks)
         
-        # Atribui o alvo do Caçador de Cabeças, se houver
         if headhunter_state := next((p for p in game.players.values() if isinstance(p.role, CacadorDeCabecas)), None):
             possible_targets = [p for p in game.players.values() if p.member.id != headhunter_state.member.id]
             if possible_targets:
@@ -145,7 +143,7 @@ class GameSetupCog(commands.Cog):
 
     @commands.slash_command(
         name="preparar",
-        description="Inicia a preparação de um jogo neste canal, puxando jogadores do seu canal de voz."
+        description="Inicia a preparação de um jogo, puxando jogadores do seu canal de voz."
     )
     async def preparar_jogo(self, ctx: ApplicationContext):
         logger.info(f"Comando /preparar recebido de {ctx.author.display_name} no canal #{ctx.channel.name}")
@@ -154,44 +152,51 @@ class GameSetupCog(commands.Cog):
             await ctx.respond("Já existe uma partida sendo preparada ou em andamento neste canal.", ephemeral=True)
             return
 
-        if not ctx.author.voice or not ctx.author.voice.channel:
+        # --- NOVA VERIFICAÇÃO E LOG DETALHADO ---
+        author_voice_state = ctx.author.voice
+        if not author_voice_state or not author_voice_state.channel:
+            logger.warning(f"Usuário {ctx.author.display_name} usou /preparar mas não está em um canal de voz.")
             await ctx.respond("Você precisa estar em um canal de voz para iniciar um jogo!", ephemeral=True)
             return
-        
-        voice_channel = ctx.author.voice.channel
-        
-        # Desmuta todos no canal de voz como medida de segurança
-        for member in voice_channel.members:
-            if member.voice and member.voice.mute:
-                try: await member.edit(mute=False, reason="Início de uma nova preparação de jogo.")
-                except Exception: pass
 
-        connected_members = [member for member in voice_channel.members if not member.bot]
+        voice_channel = author_voice_state.channel
+        logger.info(f"Usuário está no canal de voz: {voice_channel.name} (ID: {voice_channel.id})")
+        
+        # O PONTO CRÍTICO: Vamos buscar os membros de uma forma mais robusta
+        # Acessar a propriedade .members pode depender do cache. Vamos tentar buscar na guild.
+        vc_from_guild = ctx.guild.get_channel(voice_channel.id)
+        if not vc_from_guild:
+            logger.error(f"Não foi possível encontrar o canal de voz {voice_channel.id} na guild.")
+            await ctx.respond("Ocorreu um erro ao identificar seu canal de voz. Tente novamente.", ephemeral=True)
+            return
+            
+        connected_members = [member for member in vc_from_guild.members if not member.bot]
         num_players = len(connected_members)
         
+        logger.info(f"Membros encontrados no canal de voz '{vc_from_guild.name}': {[m.display_name for m in connected_members]}. Total: {num_players}")
+        # --- FIM DA NOVA VERIFICAÇÃO ---
+
         if not (config.MIN_PLAYERS <= num_players <= config.MAX_PLAYERS):
+            # A mensagem de erro agora será mais precisa
             await ctx.respond(f"Opa! Precisamos de {config.MIN_PLAYERS} a {config.MAX_PLAYERS} jogadores, e vocês são {num_players}.", ephemeral=True)
             return
 
-        game = None # Inicializa game como None para o bloco finally
+        game = None
         try:
             await ctx.respond(f"Iniciando preparação para {num_players} jogadores. Verifiquem suas DMs!", ephemeral=True)
             
-            # Cria a instância do jogo através do manager
             game = self.bot.game_manager.create_game(ctx.channel, voice_channel, ctx.author)
             if not game:
                 await ctx.followup.send("Erro inesperado ao criar a partida. Tente novamente.", ephemeral=True)
                 return
             
-            # Adiciona os jogadores à instância
             for member in connected_members:
                 game.add_player(member)
 
-            # Distribui os papéis
             success = await self._distribute_roles(game, connected_members)
             if not success:
                 await ctx.channel.send(f"⚠️ **Erro na Preparação:** Não foi possível distribuir os papéis. Verifique as configurações e os logs do bot. A preparação foi cancelada.")
-                self.bot.game_manager.end_game(ctx.channel.id) # Limpa a instância falha
+                self.bot.game_manager.end_game(ctx.channel.id)
                 return
 
             player_list_text = "\n".join([f"- {member.display_name}" for member in connected_members])
@@ -207,7 +212,6 @@ class GameSetupCog(commands.Cog):
         except Exception as e:
             await ctx.respond("Opa! Algo deu muito errado aqui dentro. A preparação foi cancelada.", ephemeral=True)
             logger.exception("Erro inesperado durante o comando /preparar:", exc_info=e)
-            # Garante que, se a instância foi criada, ela seja limpa em caso de erro
             if game and self.bot.game_manager.get_game(game.text_channel.id):
                 self.bot.game_manager.end_game(game.text_channel.id)
 
