@@ -152,32 +152,23 @@ class GameSetupCog(commands.Cog):
             await ctx.respond("Já existe uma partida sendo preparada ou em andamento neste canal.", ephemeral=True)
             return
 
-        # --- NOVA VERIFICAÇÃO E LOG DETALHADO ---
-        author_voice_state = ctx.author.voice
-        if not author_voice_state or not author_voice_state.channel:
+        # 1. Checa se o AUTOR do comando está em um canal de voz
+        if not ctx.author.voice or not ctx.author.voice.channel:
             logger.warning(f"Usuário {ctx.author.display_name} usou /preparar mas não está em um canal de voz.")
             await ctx.respond("Você precisa estar em um canal de voz para iniciar um jogo!", ephemeral=True)
             return
 
-        voice_channel = author_voice_state.channel
-        logger.info(f"Usuário está no canal de voz: {voice_channel.name} (ID: {voice_channel.id})")
+        # 2. Pega o canal de voz do autor. Esta é a referência correta.
+        voice_channel = ctx.author.voice.channel
         
-        # O PONTO CRÍTICO: Vamos buscar os membros de uma forma mais robusta
-        # Acessar a propriedade .members pode depender do cache. Vamos tentar buscar na guild.
-        vc_from_guild = ctx.guild.get_channel(voice_channel.id)
-        if not vc_from_guild:
-            logger.error(f"Não foi possível encontrar o canal de voz {voice_channel.id} na guild.")
-            await ctx.respond("Ocorreu um erro ao identificar seu canal de voz. Tente novamente.", ephemeral=True)
-            return
-            
-        connected_members = [member for member in vc_from_guild.members if not member.bot]
+        # 3. Pega a lista de membros diretamente deste canal.
+        #    Com as intents e o cache de voz ligados, esta lista DEVE estar correta.
+        connected_members = [member for member in voice_channel.members if not member.bot]
         num_players = len(connected_members)
         
-        logger.info(f"Membros encontrados no canal de voz '{vc_from_guild.name}': {[m.display_name for m in connected_members]}. Total: {num_players}")
-        # --- FIM DA NOVA VERIFICAÇÃO ---
+        logger.info(f"Membros encontrados no canal de voz '{voice_channel.name}': {[m.display_name for m in connected_members]}. Total: {num_players}")
 
         if not (config.MIN_PLAYERS <= num_players <= config.MAX_PLAYERS):
-            # A mensagem de erro agora será mais precisa
             await ctx.respond(f"Opa! Precisamos de {config.MIN_PLAYERS} a {config.MAX_PLAYERS} jogadores, e vocês são {num_players}.", ephemeral=True)
             return
 
