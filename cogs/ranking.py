@@ -33,16 +33,32 @@ async def load_ranking() -> dict:
     """Carrega os dados do ranking do arquivo JSON de forma segura."""
     async with ranking_lock:
         try:
+            # Garante que a pasta 'data' exista
             os.makedirs(config.DATA_PATH, exist_ok=True)
+
+            # Se o arquivo não existe, cria ele com um JSON válido e retorna um dict vazio
             if not os.path.exists(config.RANKING_FILE):
                 with open(config.RANKING_FILE, 'w', encoding='utf-8') as f:
                     json.dump({}, f)
                 return {}
             
+            # Se o arquivo existe, tenta carregar
             with open(config.RANKING_FILE, 'r', encoding='utf-8') as f:
+                # Checa se o arquivo está vazio antes de tentar carregar
+                if os.path.getsize(config.RANKING_FILE) == 0:
+                    # Se estiver vazio, reescreve com um JSON válido
+                    f.close() # Fecha o arquivo de leitura
+                    with open(config.RANKING_FILE, 'w', encoding='utf-8') as wf:
+                        json.dump({}, wf)
+                    return {}
+                
+                # Se não estiver vazio, volta ao início do arquivo e carrega o JSON
+                f.seek(0)
                 return json.load(f)
-        except (json.JSONDecodeError, IOError, TypeError) as e:
-            logger.exception(f"Erro ao carregar ou decodificar o ranking. Resetando. Erro: {e}")
+
+        except (json.JSONDecodeError, IOError) as e:
+            logger.warning(f"Não foi possível carregar {config.RANKING_FILE}, o arquivo pode estar corrompido ou vazio. Criando um novo. Erro: {e}")
+            # Se qualquer erro ocorrer, cria um novo arquivo limpo
             with open(config.RANKING_FILE, 'w', encoding='utf-8') as f:
                 json.dump({}, f)
             return {}
