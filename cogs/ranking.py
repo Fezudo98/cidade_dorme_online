@@ -190,12 +190,16 @@ class RankingCog(commands.Cog):
     @option("usuario", description="Veja o perfil de outro jogador (opcional).", required=False)
     async def show_profile(self, ctx: ApplicationContext, usuario: discord.Member = None):
         """Exibe o perfil detalhado de um jogador."""
+        # >>> CORREÇÃO: Adicionado ctx.defer() para evitar timeout da interação <<<
+        await ctx.defer()
+
         target_user = usuario or ctx.author
         ranking_data = await load_ranking()
         player_id_str = str(target_user.id)
 
         if player_id_str not in ranking_data:
-            await ctx.respond(f"**{target_user.display_name}** ainda não tem um perfil. É hora de jogar!", ephemeral=True)
+            # >>> CORREÇÃO: Usar followup.send pois a interação foi adiada <<<
+            await ctx.followup.send(f"**{target_user.display_name}** ainda não tem um perfil. É hora de jogar!")
             return
 
         stats = ranking_data[player_id_str]
@@ -235,8 +239,9 @@ class RankingCog(commands.Cog):
         if medals := stats["medalhas"]:
             medals_text = "🎖️ " + "\n🎖️ ".join(medals)
             embed.add_field(name=f"Conquistas ({len(medals)})", value=medals_text, inline=False)
-
-        await ctx.respond(embed=embed)
+        
+        # >>> CORREÇÃO: Usar followup.send pois a interação foi adiada <<<
+        await ctx.followup.send(embed=embed)
 
 def setup(bot: commands.Bot):
     bot.add_cog(RankingCog(bot))
