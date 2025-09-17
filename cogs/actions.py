@@ -709,27 +709,43 @@ class ActionsCog(commands.Cog):
             
             attack_source, attacker_id = killers_info[0]
             
-            # A proteção funciona contra o ataque dos vilões, mas não contra o ataque da bruxa.
+            # --- LÓGICA DO GUARDA-COSTAS REFINADA COM MENSAGENS SECRETAS ---
+            
+            # Cenário 1: O alvo está sendo protegido por um Guarda-costas
             if target_state.protected_by and attack_source == 'villain':
                 protector_state = game.get_player_state_by_id(target_state.protected_by)
                 if protector_state:
-                    if not protector_state.bodyguard_vest_used:
-                        protector_state.bodyguard_vest_used = True
+                    protector_state.bodyguard_hits_survived += 1
+                    
+                    if protector_state.bodyguard_hits_survived == 1:
+                        # Primeira vez se sacrificando: ele sobrevive
                         results["sound_events"].append("PROTECTION_SUCCESS")
-                        results["dm_messages"].setdefault(protector_state.member.id, []).append("🛡️ Você protegeu seu alvo de um ataque e sobreviveu!")
-                    else:
+                        # Mensagem para o protetor (ele sabe quem protegeu)
+                        results["dm_messages"].setdefault(protector_state.member.id, []).append("🛡️ Você entrou na frente de um ataque para proteger seu alvo e sobreviveu!")
+                        # Mensagem para o protegido (NÃO revela quem o salvou)
+                        results["dm_messages"].setdefault(target_id, []).append("🛡️ Você foi atacado, mas uma força protetora te salvou esta noite.")
+                    else: # bodyguard_hits_survived >= 2
+                        # Segunda vez se sacrificando: ele morre no lugar do alvo
                         final_deaths.append((protector_state.member.id, "bodyguard_sacrifice", target_id))
                         results["sound_events"].append("PLAYER_DEATH")
-                        results["public_messages"].append(f"🛡️ O **Guarda-Costas** foi encontrado morto no lugar de {target_state.member.display_name}!")
-                continue
+                        # NENHUMA mensagem pública aqui. A morte do BG será anunciada no início do dia
+                        # junto com as outras, sem revelar a causa.
+                continue # O alvo original sobrevive em ambos os casos
             
-            if isinstance(target_state.role, GuardaCostas) and not target_state.bodyguard_vest_used:
-                target_state.bodyguard_vest_used = True
-                results["sound_events"].append("PROTECTION_SUCCESS")
-                results["dm_messages"].setdefault(target_id, []).append("🛡️ Você foi atacado, mas sua resistência o salvou!")
-                continue
+            # Cenário 2: O alvo do ataque É o Guarda-costas
+            if isinstance(target_state.role, GuardaCostas):
+                target_state.bodyguard_hits_survived += 1
+                
+                if target_state.bodyguard_hits_survived == 1:
+                    # Primeira vez atacado diretamente: ele sobrevive
+                    results["sound_events"].append("PROTECTION_SUCCESS")
+                    results["dm_messages"].setdefault(target_id, []).append("🛡️ Você foi atacado, mas sua resistência o salvou desta vez!")
+                    continue # O BG sobrevive, então pulamos para o próximo alvo
+                # Se for a segunda vez (hits >= 2), a lógica continua e ele será adicionado à lista de mortes abaixo
             
+            # Adiciona a morte à lista se nenhuma das condições de sobrevivência acima for atendida
             final_deaths.append((target_id, attack_source, attacker_id))
+            
         return final_deaths
 
     async def _resolve_revivals(self, game: GameInstance, sorted_actions: List[Any], final_deaths: List[tuple], results: Dict) -> List[tuple]:
