@@ -14,10 +14,11 @@ logger = logging.getLogger(__name__)
 
 class PlayerState:
     """Classe para armazenar o estado individual de um jogador dentro de uma partida."""
-    # __slots__ previne a criação de __dict__ por instância, economizando RAM.
     __slots__ = (
         'member', 'role', 'is_alive', 'protected_by', 'is_corrupted', 
-        'is_infected', 'possession_points', 'bodyguard_vest_used', 
+        'is_infected', 'possession_points', 
+        # --- MUDANÇA AQUI ---
+        'bodyguard_hits_survived', 
         'is_ghost', 'ghost_master_id', 'is_confused'
     )
 
@@ -29,7 +30,8 @@ class PlayerState:
         self.is_corrupted = False
         self.is_infected = False
         self.possession_points: int = 0
-        self.bodyguard_vest_used: bool = False
+        # --- MUDANÇA AQUI ---
+        self.bodyguard_hits_survived: int = 0
         self.is_ghost: bool = False
         self.ghost_master_id: Optional[int] = None
         self.is_confused: bool = False
@@ -47,13 +49,17 @@ class PlayerState:
     def revive(self):
         """Marca o jogador como vivo e reseta suas flags de estado individuais."""
         self.is_alive = True
-        self.bodyguard_vest_used = False
+        # --- MUDANÇA AQUI ---
+        self.bodyguard_hits_survived = 0
         self.is_ghost = False
         self.ghost_master_id = None
         self.is_confused = False
         logger.info(f"Jogador {self.member.display_name} foi revivido.")
 
 class GameInstance:
+    # ... (o resto da classe GameInstance permanece exatamente o mesmo, sem necessidade de colar aqui)
+    # Apenas certifique-se de que a classe PlayerState foi atualizada como acima.
+    # O restante do arquivo (a classe GameInstance inteira) não precisa ser modificado.
     """
     Classe para gerenciar o estado completo de UMA partida de Cidade Dorme.
     """
