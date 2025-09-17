@@ -93,26 +93,57 @@ class GameFlowCog(commands.Cog):
                 logger.info(f"[Jogo #{game.text_channel.id}] Timer cancelado.")
         game.current_timer_task = asyncio.create_task(timer_task())
 
-    async def play_sound_effect(self, game: GameInstance, event_key: str, wait_for_finish: bool = False):
-        if not config.AUDIO_ENABLED or not game.voice_channel: return
-        if not (sound_list := config.AUDIO_FILES.get(event_key)): return
-        chosen_file = random.choice(sound_list)
-        audio_path = os.path.join(config.AUDIO_PATH, chosen_file)
-        if not os.path.exists(audio_path) or not game.voice_channel.members: return
+    # Em cogs/game_flow.py
+
+async def play_sound_effect(self, game: GameInstance, event_key: str, wait_for_finish: bool = False):
+    if not config.AUDIO_ENABLED or not game.voice_channel:
+        return
+    if not (sound_list := config.AUDIO_FILES.get(event_key)):
+        return
         
-        voice_client = discord.utils.get(self.bot.voice_clients, guild=game.guild)
-        try:
-            if not voice_client or not voice_client.is_connected():
-                voice_client = await game.voice_channel.connect()
-            elif voice_client.channel != game.voice_channel:
+    chosen_file = random.choice(sound_list)
+    audio_path = os.path.join(config.AUDIO_PATH, chosen_file)
+    if not os.path.exists(audio_path):
+        # Adiciona um log mais visível para este erro comum
+        logger.error(f"Arquivo de áudio não encontrado em: {audio_path}")
+        return
+    if not game.voice_channel.members:
+        return
+
+    voice_client = discord.utils.get(self.bot.voice_clients, guild=game.guild)
+    
+    try:
+        # 1. Garante que estamos conectados e no canal certo
+        if voice_client and voice_client.is_connected():
+            if voice_client.channel != game.voice_channel:
                 await voice_client.move_to(game.voice_channel)
-            if voice_client.is_playing(): voice_client.stop()
-            
+        else:
+            # Tenta conectar com um timeout generoso
+            voice_client = await asyncio.wait_for(game.voice_channel.connect(), timeout=15.0)
+
+        # 2. Garante que o cliente de voz está pronto antes de tocar
+        if not voice_client or not voice_client.is_connected():
+            logger.warning(f"[Jogo #{game.text_channel.id}] Não foi possível estabelecer uma conexão de voz.")
+            return
+
+        # 3. Toca o áudio de forma segura
+        if voice_client.is_playing():
+            voice_client.stop()
+        
+        source = discord.FFmpegPCMAudio(audio_path)
+        
+        if wait_for_finish:
             finished = asyncio.Event()
-            voice_client.play(discord.FFmpegPCMAudio(audio_path), after=lambda e: finished.set())
-            if wait_for_finish: await finished.wait()
-        except Exception as e:
-            logger.error(f"[Jogo #{game.text_channel.id}] Erro ao tocar áudio: {e}", exc_info=True)
+            voice_client.play(source, after=lambda e: finished.set())
+            # Espera o som terminar ou um timeout para não travar o jogo
+            await asyncio.wait_for(finished.wait(), timeout=30.0)
+        else:
+            voice_client.play(source)
+
+    except asyncio.TimeoutError:
+        logger.error(f"[Jogo #{game.text_channel.id}] Timeout ao tentar conectar ou tocar áudio.")
+    except Exception as e:
+        logger.error(f"[Jogo #{game.text_channel.id}] Erro inesperado ao tocar áudio: {e}", exc_info=True)
 
     @commands.slash_command(name="iniciar", description="Inicia a primeira noite do jogo neste canal.")
     async def iniciar_jogo(self, ctx: discord.ApplicationContext):
@@ -135,7 +166,7 @@ class GameFlowCog(commands.Cog):
             await actions_cog.distribute_initial_info(game)
         
         await self._update_voice_permissions(game, mute=True)
-        asyncio.create_task(self.play_sound_effect(game, "NIGHT_START"))
+        await self.play_sound_effect(game, "NIGHT_START")
         announcement_text = f"🌃 **NOITE {game.current_night}** 🌃\n{get_random_humor('NIGHT_START')}"
         image_path = os.path.join(config.IMAGES_PATH, config.EVENT_IMAGES["NIGHT_START"])
         await send_public_message(self.bot, game.text_channel, message=announcement_text, file_path=image_path)
@@ -228,14 +259,14 @@ class GameFlowCog(commands.Cog):
         game.current_day += 1
         logger.info(f"[Jogo #{game.text_channel.id}] --- Iniciando Dia {game.current_day} ---")
         await self._update_voice_permissions(game, mute=False)
-        asyncio.create_task(self.play_sound_effect(game, "DAY_START"))
+        await self.play_sound_effect(game, "DAY_START")
         await send_public_message(self.bot, game.text_channel, f"☀️ **DIA {game.current_day}** ☀️\n{get_random_humor('DAY_START')}")
         self._start_timer(game, config.DAY_DISCUSSION_DURATION_SECONDS, self.start_day_voting)
 
     async def start_day_voting(self, game: GameInstance):
         game.current_phase = "day_voting"
         game.clear_daily_states()
-        asyncio.create_task(self.play_sound_effect(game, "VOTE_START"))
+        await self.play_sound_effect(game, "VOTE_START")
         await send_public_message(self.bot, game.text_channel, f"⏳ **VOTAÇÃO ABERTA!** ⏳\n{get_random_humor('VOTE_START')}")
         for player_state in game.get_alive_players_states():
             await send_dm_safe(player_state.member, "É hora de apontar o dedo! Use `/votar [nome]` na nossa DM para me dizer quem deve ser linchado.")
@@ -247,7 +278,7 @@ class GameFlowCog(commands.Cog):
         actions_cog = self.bot.get_cog("ActionsCog")
         if not actions_cog: logger.error(f"[Jogo #{game.text_channel.id}] CRÍTICO: ActionsCog não encontrado."); return
         lynch_result = await actions_cog.process_lynch(game)
-        if lynch_result.get("sound_event"): asyncio.create_task(self.play_sound_effect(game, lynch_result["sound_event"]))
+        if lynch_result.get("sound_event"): await self.play_sound_effect(game, lynch_result["sound_event"])
         for msg in lynch_result.get("public_messages", []):
             await send_public_message(self.bot, game.text_channel, msg); await asyncio.sleep(1)
         if lynch_result.get("game_over"): return

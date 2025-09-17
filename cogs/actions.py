@@ -146,7 +146,7 @@ class ActionsCog(commands.Cog):
             tasks.append(send_dm_safe(villains[0].member, message=message))
         await asyncio.gather(*tasks)
 
-    # --- COMANDOS (Sem alterações) ---
+    # --- COMANDOS ---
     
     @commands.slash_command(name="decreto", description="(Prefeito) Amplifica o poder de voto da Cidade (1x por jogo).")
     @check_game_phase(["day_voting"])
@@ -346,7 +346,7 @@ class ActionsCog(commands.Cog):
         if not target_member: await ctx.respond(f"Não achei o jogador morto '{jogador}'.", ephemeral=True); return
         target_state = game.get_player_state_by_id(target_member.id)
         if target_state.is_ghost and not isinstance(target_state.role, Prefeito):
-            await ctx.respond("A alma deste jogador não pode ser revivida.", ephemeral=True); return
+            await ctx.respond("A alma deste jogador não pode ser revivda.", ephemeral=True); return
         if target_member.id in game.night_revive_targets:
             await ctx.respond("Alguém já está tentando reviver essa pessoa.", ephemeral=True); return
         if is_witch: game.bruxo_major_action = {"action": "revive", "target_id": target_member.id}
@@ -360,7 +360,7 @@ class ActionsCog(commands.Cog):
     @check_player_state()
     @check_role([Detetive])
     @option("jogador1", description="O nome do jogador a marcar.", autocomplete=search_alive_players)
-    @option("jogador2", description="Opcional. Apenas para jogos com mais de 5 pessoas.", autocomplete=search_alive_players, required=False)
+    @option("jogador2", description="Opcional. Obrigatório em jogos com mais de 5 pessoas.", autocomplete=search_alive_players, required=False)
     async def marcar(self, ctx: ApplicationContext, jogador1: str, jogador2: str = None):
         game = ctx.game
         num_players = len(game.players)
@@ -521,6 +521,11 @@ class ActionsCog(commands.Cog):
         game = ctx.game
         target_member = find_player_by_name(game, jogador)
         if not target_member: await ctx.respond(f"Não achei o jogador '{jogador}'.", ephemeral=True); return
+        
+        # Garante que o voto para pular seja removido se o jogador decidir votar em alguém.
+        if ctx.author.id in game.day_skip_votes:
+            game.day_skip_votes.remove(ctx.author.id)
+            
         game.day_votes[ctx.author.id] = target_member.id
         await ctx.respond(f"Seu voto em {target_member.display_name} foi registrado!", ephemeral=True)
 
@@ -704,6 +709,7 @@ class ActionsCog(commands.Cog):
             
             attack_source, attacker_id = killers_info[0]
             
+            # A proteção funciona contra o ataque dos vilões, mas não contra o ataque da bruxa.
             if target_state.protected_by and attack_source == 'villain':
                 protector_state = game.get_player_state_by_id(target_state.protected_by)
                 if protector_state:
