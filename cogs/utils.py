@@ -5,13 +5,17 @@ from discord.ext import commands
 from discord import option, ApplicationContext
 import logging
 import random
-from typing import Optional, Dict, Type
+from typing import Optional, Dict, Type, TYPE_CHECKING
 
 import config
 from roles.base_role import Role
 from roles.cidade_roles import cidade_role_classes
 from roles.viloes_roles import viloes_role_classes
 from roles.solo_roles import solo_role_classes
+
+# Evita importação circular, mas permite o type hinting
+if TYPE_CHECKING:
+    from .game_instance import GameInstance
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +30,7 @@ async def search_roles(ctx: discord.AutocompleteContext) -> list:
 
 # --- Funções Utilitárias ---
 
-async def send_public_message(bot: commands.Bot, channel: discord.TextChannel, message: Optional[str] = None, embed: Optional[discord.Embed] = None, file_path: Optional[str] = None, allowed_mentions: Optional[discord.AllowedMentions] = None):
+async def send_public_message(bot: commands.Bot, channel: discord.TextChannel, message: Optional[str] = None, embed: Optional[discord.Embed] = None, file_path: Optional[str] = None, allowed_mentions: Optional[discord.AllowedMentions] = None, game: Optional['GameInstance'] = None):
     """
     Envia uma mensagem para um canal de texto público especificado.
     """
@@ -40,10 +44,18 @@ async def send_public_message(bot: commands.Bot, channel: discord.TextChannel, m
             discord_file = discord.File(file_path)
         except FileNotFoundError:
             logger.error(f"Arquivo de imagem não encontrado em: {file_path}")
+            # --- NOVA LÓGICA DE NOTIFICAÇÃO ---
+            if game and not game.asset_error_notified:
+                game.asset_error_notified = True
+                await channel.send(f"⚠️ **Aviso para o Admin:** Não encontrei os arquivos de imagem/áudio. Verifique se a pasta `assets` foi enviada corretamente para a hospedagem do bot.")
     try:
         await channel.send(content=message, embed=embed, file=discord_file, allowed_mentions=allowed_mentions)
     except discord.Forbidden:
         logger.error(f"Sem permissão para enviar mensagens no canal {channel.name}.")
+        # Se não puder enviar a mensagem de erro, apenas loga.
+        if game and not game.permission_error_notified:
+            game.permission_error_notified = True
+            logger.critical(f"CRÍTICO: Não consigo enviar mensagens no canal do jogo {channel.name}. Verifique as permissões de 'Ver Canal' e 'Enviar Mensagens'.")
     except Exception as e:
         logger.error(f"Erro ao enviar mensagem pública para {channel.name}: {e}")
 

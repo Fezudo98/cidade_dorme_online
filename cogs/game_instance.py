@@ -72,7 +72,9 @@ class GameInstance:
         'bruxo_major_action', 'plague_patient_zero_id', 'plague_player_id',
         'sheriff_shots_fired', 'sheriff_revealed', 'prefeito_saved_once',
         'junior_marked_target_id', 'fofoqueiro_marked_target_id',
-        'winning_faction', 'first_death_id', 'skip_villain_kill'
+        'winning_faction', 'first_death_id', 'skip_villain_kill',
+        # --- NOVAS FLAGS DE NOTIFICAÇÃO DE ERRO ---
+        'permission_error_notified', 'audio_error_notified', 'asset_error_notified'
     )
 
     def __init__(self, bot: discord.Bot, text_channel: discord.TextChannel, voice_channel: discord.VoiceChannel, game_master: discord.Member):
@@ -133,6 +135,11 @@ class GameInstance:
         # --- Estado Pós-Jogo ---
         self.winning_faction: Optional[str] = None
         self.first_death_id: Optional[int] = None
+
+        # --- Flags de Notificação de Erro ---
+        self.permission_error_notified: bool = False
+        self.audio_error_notified: bool = False
+        self.asset_error_notified: bool = False
         
         logger.info(f"Nova GameInstance criada para o canal #{text_channel.name} (ID: {text_channel.id})")
 

@@ -71,13 +71,35 @@ class GameFlowCog(commands.Cog):
             else:
                 if player_state := game.get_player_state_by_id(member.id):
                     should_be_muted = mute or not player_state.is_alive
-            tasks.append(self._set_member_mute(member, should_be_muted, "Controle de fase do jogo"))
+            # Passa a instância do jogo para a função de mutar
+            tasks.append(self._set_member_mute(game, member, should_be_muted, "Controle de fase do jogo"))
         await asyncio.gather(*tasks, return_exceptions=True)
 
-    async def _set_member_mute(self, member: discord.Member, mute: bool, reason: str):
+    async def _set_member_mute(self, game: GameInstance, member: discord.Member, mute: bool, reason: str):
         try:
             if member.voice and member.voice.mute != mute:
                 await member.edit(mute=mute, reason=reason)
+        except discord.Forbidden:
+            logger.error(f"Falha ao mutar/desmutar {member.display_name}: 403 Forbidden (Missing Permissions)")
+            # --- NOVA LÓGICA DE NOTIFICAÇÃO ---
+            if not game.permission_error_notified:
+                game.permission_error_notified = True
+                embed = discord.Embed(
+                    title="🚨 Erro de Permissão Crítico 🚨",
+                    description="Não consigo silenciar e dessilenciar os jogadores! A jogabilidade será comprometida.",
+                    color=discord.Color.red()
+                )
+                embed.add_field(
+                    name="Como Corrigir (para Admins):",
+                    value=(
+                        "1. **Hierarquia de Cargos:** Vá em `Configurações do Servidor > Cargos` e arraste o cargo do bot (`Cidade Dorme`) para **acima** dos cargos dos jogadores.\n"
+                        "2. **Permissões de Cargo:** Verifique se o cargo do bot tem a permissão **'Silenciar Membros'** ativada.\n"
+                        "3. **Permissões do Canal:** Verifique as permissões do canal de voz e garanta que o bot pode **'Conectar'** e **'Silenciar Membros'**."
+                    ),
+                    inline=False
+                )
+                embed.set_footer(text="Esta mensagem só aparecerá uma vez por partida.")
+                await send_public_message(self.bot, game.text_channel, embed=embed)
         except Exception as e:
             logger.error(f"Falha ao mutar/desmutar {member.display_name}: {e}")
 
@@ -93,57 +115,70 @@ class GameFlowCog(commands.Cog):
                 logger.info(f"[Jogo #{game.text_channel.id}] Timer cancelado.")
         game.current_timer_task = asyncio.create_task(timer_task())
 
-    # Em cogs/game_flow.py
-
-async def play_sound_effect(self, game: GameInstance, event_key: str, wait_for_finish: bool = False):
-    if not config.AUDIO_ENABLED or not game.voice_channel:
-        return
-    if not (sound_list := config.AUDIO_FILES.get(event_key)):
-        return
-        
-    chosen_file = random.choice(sound_list)
-    audio_path = os.path.join(config.AUDIO_PATH, chosen_file)
-    if not os.path.exists(audio_path):
-        # Adiciona um log mais visível para este erro comum
-        logger.error(f"Arquivo de áudio não encontrado em: {audio_path}")
-        return
-    if not game.voice_channel.members:
-        return
-
-    voice_client = discord.utils.get(self.bot.voice_clients, guild=game.guild)
-    
-    try:
-        # 1. Garante que estamos conectados e no canal certo
-        if voice_client and voice_client.is_connected():
-            if voice_client.channel != game.voice_channel:
-                await voice_client.move_to(game.voice_channel)
-        else:
-            # Tenta conectar com um timeout generoso
-            voice_client = await asyncio.wait_for(game.voice_channel.connect(), timeout=15.0)
-
-        # 2. Garante que o cliente de voz está pronto antes de tocar
-        if not voice_client or not voice_client.is_connected():
-            logger.warning(f"[Jogo #{game.text_channel.id}] Não foi possível estabelecer uma conexão de voz.")
+    async def play_sound_effect(self, game: GameInstance, event_key: str, wait_for_finish: bool = False):
+        if not config.AUDIO_ENABLED or not game.voice_channel:
+            return
+        if not (sound_list := config.AUDIO_FILES.get(event_key)):
+            return
+            
+        chosen_file = random.choice(sound_list)
+        audio_path = os.path.join(config.AUDIO_PATH, chosen_file)
+        if not os.path.exists(audio_path):
+            logger.error(f"Arquivo de áudio não encontrado em: {audio_path}")
+            # --- NOVA LÓGICA DE NOTIFICAÇÃO DE ASSET ---
+            if not game.asset_error_notified:
+                game.asset_error_notified = True
+                await send_public_message(self.bot, game.text_channel, message=f"⚠️ **Aviso para o Admin:** Não encontrei os arquivos de áudio/imagem. Verifique se a pasta `assets` foi enviada corretamente para a hospedagem do bot.")
+            return
+        if not game.voice_channel.members:
             return
 
-        # 3. Toca o áudio de forma segura
-        if voice_client.is_playing():
-            voice_client.stop()
+        voice_client = discord.utils.get(self.bot.voice_clients, guild=game.guild)
         
-        source = discord.FFmpegPCMAudio(audio_path)
-        
-        if wait_for_finish:
-            finished = asyncio.Event()
-            voice_client.play(source, after=lambda e: finished.set())
-            # Espera o som terminar ou um timeout para não travar o jogo
-            await asyncio.wait_for(finished.wait(), timeout=30.0)
-        else:
-            voice_client.play(source)
+        try:
+            if voice_client and voice_client.is_connected():
+                if voice_client.channel != game.voice_channel:
+                    await voice_client.move_to(game.voice_channel)
+            else:
+                voice_client = await asyncio.wait_for(game.voice_channel.connect(), timeout=15.0)
 
-    except asyncio.TimeoutError:
-        logger.error(f"[Jogo #{game.text_channel.id}] Timeout ao tentar conectar ou tocar áudio.")
-    except Exception as e:
-        logger.error(f"[Jogo #{game.text_channel.id}] Erro inesperado ao tocar áudio: {e}", exc_info=True)
+            if not voice_client or not voice_client.is_connected():
+                logger.warning(f"[Jogo #{game.text_channel.id}] Não foi possível estabelecer uma conexão de voz.")
+                raise ConnectionError("Falha ao conectar ou verificar a conexão.")
+
+            if voice_client.is_playing():
+                voice_client.stop()
+            
+            source = discord.FFmpegPCMAudio(audio_path)
+            
+            if wait_for_finish:
+                finished = asyncio.Event()
+                voice_client.play(source, after=lambda e: finished.set())
+                await asyncio.wait_for(finished.wait(), timeout=30.0)
+            else:
+                voice_client.play(source)
+
+        except (asyncio.TimeoutError, ConnectionError) as e:
+            logger.error(f"[Jogo #{game.text_channel.id}] Timeout ou erro de conexão ao tentar tocar áudio: {e}")
+            # --- NOVA LÓGICA DE NOTIFICAÇÃO DE ÁUDIO ---
+            if not game.audio_error_notified:
+                game.audio_error_notified = True
+                embed = discord.Embed(
+                    title="⚠️ Problema de Áudio ⚠️",
+                    description="Estou com dificuldades para me conectar ao canal de voz e tocar os efeitos sonoros.",
+                    color=discord.Color.orange()
+                )
+                embed.add_field(
+                    name="Possíveis Causas:",
+                    value=(
+                        "1. O Discord está com instabilidade na sua região.\n"
+                        "2. O bot não tem permissão para **'Conectar'** e **'Falar'** no canal de voz."
+                    )
+                )
+                embed.set_footer(text="Esta mensagem só aparecerá uma vez por partida.")
+                await send_public_message(self.bot, game.text_channel, embed=embed)
+        except Exception as e:
+            logger.error(f"[Jogo #{game.text_channel.id}] Erro inesperado ao tocar áudio: {e}", exc_info=True)
 
     @commands.slash_command(name="iniciar", description="Inicia a primeira noite do jogo neste canal.")
     async def iniciar_jogo(self, ctx: discord.ApplicationContext):
@@ -169,7 +204,7 @@ async def play_sound_effect(self, game: GameInstance, event_key: str, wait_for_f
         await self.play_sound_effect(game, "NIGHT_START")
         announcement_text = f"🌃 **NOITE {game.current_night}** 🌃\n{get_random_humor('NIGHT_START')}"
         image_path = os.path.join(config.IMAGES_PATH, config.EVENT_IMAGES["NIGHT_START"])
-        await send_public_message(self.bot, game.text_channel, message=announcement_text, file_path=image_path)
+        await send_public_message(self.bot, game.text_channel, message=announcement_text, file_path=image_path, game=game)
         self._start_timer(game, config.NIGHT_DURATION_SECONDS, self.end_night)
 
     async def force_night(self, game: GameInstance):
@@ -183,7 +218,7 @@ async def play_sound_effect(self, game: GameInstance, event_key: str, wait_for_f
         if any(isinstance(p.role, Bruxo) for p in game.get_alive_players_states()) and not game.witch_potion_used: can_revive_roles.append("um Bruxo")
         if not can_revive_roles: return
         message = f"🚨 **ALERTA** 🚨\nOs Vilões foram eliminados, mas o Prefeito caiu!\nO destino da cidade está nas mãos de **{' e '.join(can_revive_roles)}**."
-        await send_public_message(self.bot, game.text_channel, message=message)
+        await send_public_message(self.bot, game.text_channel, message=message, game=game)
 
     async def _resolve_pending_endgame(self, game: GameInstance):
         game.pending_resolution = False
@@ -197,7 +232,7 @@ async def play_sound_effect(self, game: GameInstance, event_key: str, wait_for_f
 
     async def end_night(self, game: GameInstance):
         logger.info(f"[Jogo #{game.text_channel.id}] --- Fim da Noite {game.current_night} ---")
-        await send_public_message(self.bot, game.text_channel, "A noite acabou! Processando os eventos...")
+        await send_public_message(self.bot, game.text_channel, "A noite acabou! Processando os eventos...", game=game)
         actions_cog = self.bot.get_cog("ActionsCog")
         if not actions_cog: logger.error(f"[Jogo #{game.text_channel.id}] CRÍTICO: ActionsCog não encontrado."); return
         
@@ -250,7 +285,7 @@ async def play_sound_effect(self, game: GameInstance, event_key: str, wait_for_f
         
         image_key = image_key or "DAY_DEATH"
         image_path = os.path.join(config.IMAGES_PATH, config.EVENT_IMAGES[image_key])
-        await send_public_message(self.bot, game.text_channel, message="\n".join(day_messages), file_path=image_path)
+        await send_public_message(self.bot, game.text_channel, message="\n".join(day_messages), file_path=image_path, game=game)
         
         await self.start_day_discussion(game)
 
@@ -260,27 +295,27 @@ async def play_sound_effect(self, game: GameInstance, event_key: str, wait_for_f
         logger.info(f"[Jogo #{game.text_channel.id}] --- Iniciando Dia {game.current_day} ---")
         await self._update_voice_permissions(game, mute=False)
         await self.play_sound_effect(game, "DAY_START")
-        await send_public_message(self.bot, game.text_channel, f"☀️ **DIA {game.current_day}** ☀️\n{get_random_humor('DAY_START')}")
+        await send_public_message(self.bot, game.text_channel, f"☀️ **DIA {game.current_day}** ☀️\n{get_random_humor('DAY_START')}", game=game)
         self._start_timer(game, config.DAY_DISCUSSION_DURATION_SECONDS, self.start_day_voting)
 
     async def start_day_voting(self, game: GameInstance):
         game.current_phase = "day_voting"
         game.clear_daily_states()
         await self.play_sound_effect(game, "VOTE_START")
-        await send_public_message(self.bot, game.text_channel, f"⏳ **VOTAÇÃO ABERTA!** ⏳\n{get_random_humor('VOTE_START')}")
+        await send_public_message(self.bot, game.text_channel, f"⏳ **VOTAÇÃO ABERTA!** ⏳\n{get_random_humor('VOTE_START')}", game=game)
         for player_state in game.get_alive_players_states():
             await send_dm_safe(player_state.member, "É hora de apontar o dedo! Use `/votar [nome]` na nossa DM para me dizer quem deve ser linchado.")
         self._start_timer(game, config.VOTE_DURATION_SECONDS, self.end_day_voting)
 
     async def end_day_voting(self, game: GameInstance):
         logger.info(f"[Jogo #{game.text_channel.id}] --- Fim da Votação ---")
-        await send_public_message(self.bot, game.text_channel, "Votação encerrada! Calculando os resultados... 🔥")
+        await send_public_message(self.bot, game.text_channel, "Votação encerrada! Calculando os resultados... 🔥", game=game)
         actions_cog = self.bot.get_cog("ActionsCog")
         if not actions_cog: logger.error(f"[Jogo #{game.text_channel.id}] CRÍTICO: ActionsCog não encontrado."); return
         lynch_result = await actions_cog.process_lynch(game)
         if lynch_result.get("sound_event"): await self.play_sound_effect(game, lynch_result["sound_event"])
         for msg in lynch_result.get("public_messages", []):
-            await send_public_message(self.bot, game.text_channel, msg); await asyncio.sleep(1)
+            await send_public_message(self.bot, game.text_channel, msg, game=game); await asyncio.sleep(1)
         if lynch_result.get("game_over"): return
         if await self.check_game_end(game, "após o linchamento"): return
         if game.current_night >= config.MAX_GAME_NIGHTS:
@@ -295,22 +330,22 @@ async def play_sound_effect(self, game: GameInstance, event_key: str, wait_for_f
         logger.info(f"[Jogo #{game.text_channel.id}] Processando morte de {target_member.display_name} por: {reason}.")
         game.death_reasons[target_member.id] = reason
         target_state.kill()
-        await self._set_member_mute(target_member, True, "Jogador eliminado")
+        await self._set_member_mute(game, target_member, True, "Jogador eliminado")
         if game.first_death_id is None: game.first_death_id = target_member.id
 
         if isinstance(target_state.role, Fofoqueiro) and game.fofoqueiro_marked_target_id:
             if marked_target_state := game.get_player_state_by_id(game.fofoqueiro_marked_target_id):
-                await send_public_message(self.bot, game.text_channel, f"💬 Em seu último suspiro, o Fofoqueiro revela: **{marked_target_state.member.display_name}** era **{marked_target_state.role.name}**!")
+                await send_public_message(self.bot, game.text_channel, f"💬 Em seu último suspiro, o Fofoqueiro revela: **{marked_target_state.member.display_name}** era **{marked_target_state.role.name}**!", game=game)
         if isinstance(target_state.role, AssassinoJunior) and game.junior_marked_target_id:
             if (marked_target_state := game.get_player_state_by_id(game.junior_marked_target_id)) and marked_target_state.is_alive:
-                await send_public_message(self.bot, game.text_channel, f"💥 O espírito vingativo de {target_member.display_name} leva **{marked_target_state.member.display_name}** junto!")
+                await send_public_message(self.bot, game.text_channel, f"💥 O espírito vingativo de {target_member.display_name} leva **{marked_target_state.member.display_name}** junto!", game=game)
                 await self.process_death(game, marked_target_state.member, "killed_by_junior_curse")
                 return
         if game.lovers:
             lover1_id, lover2_id = game.lovers
             other_lover_id = lover2_id if target_member.id == lover1_id else (lover1_id if target_member.id == lover2_id else None)
             if other_lover_id and (other_lover_state := game.get_player_state_by_id(other_lover_id)) and other_lover_state.is_alive:
-                await send_public_message(self.bot, game.text_channel, f"💔 Ao ver seu amor morrer, **{other_lover_state.member.display_name}** morreu de coração partido!")
+                await send_public_message(self.bot, game.text_channel, f"💔 Ao ver seu amor morrer, **{other_lover_state.member.display_name}** morreu de coração partido!", game=game)
                 await self.process_death(game, other_lover_state.member, "heartbreak")
                 return
         if game.headhunter_info and game.headhunter_info['target_id'] == target_member.id:
@@ -322,7 +357,10 @@ async def play_sound_effect(self, game: GameInstance, event_key: str, wait_for_f
         
         if await self.check_game_end(game, f"após a morte de {target_member.display_name}", victim=target_member):
             return
-
+            
+    # As funções abaixo não precisam passar o 'game' para send_public_message,
+    # pois a partida já está terminando e as notificações de erro não são mais necessárias.
+    
     async def check_game_end(self, game: GameInstance, context: str, victim: Optional[discord.Member] = None) -> bool:
         if not self.bot.game_manager.get_game(game.text_channel.id): return True
         
@@ -471,7 +509,6 @@ async def play_sound_effect(self, game: GameInstance, event_key: str, wait_for_f
         
         await send_public_message(self.bot, game.text_channel, embed=embed, file_path=image_path if image_path and os.path.exists(image_path) else None)
         
-        # Envia a mensagem de créditos a partir do config.py
         await asyncio.sleep(2)
         await send_public_message(self.bot, game.text_channel, message=config.MSG_CREDITS)
 
