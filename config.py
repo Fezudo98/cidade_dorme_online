@@ -6,10 +6,18 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# --- LÓGICA DE CAMINHO ROBUSTA ---
+# Constrói caminhos a partir da localização deste arquivo, não do diretório de trabalho.
+# Isso garante que o bot encontre os arquivos em qualquer sistema (local, Discloud, etc.).
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
 def _load_game_configs():
     """Carrega as configurações de jogo de um arquivo JSON."""
+    # Usa o caminho base para encontrar o arquivo de configuração
+    config_file_path = os.path.join(_BASE_DIR, "game_configs.json")
     try:
-        with open("game_configs.json", "r", encoding="utf-8") as f:
+        with open(config_file_path, "r", encoding="utf-8") as f:
             return json.load(f)
     except FileNotFoundError:
         logger.critical("Erro: O arquivo 'game_configs.json' não foi encontrado. O bot não pode funcionar sem ele.")
@@ -27,12 +35,13 @@ _game_configs = _load_game_configs()
 # === Discord Bot Token ===
 BOT_TOKEN = os.getenv("BOT_TOKEN", "SEU_TOKEN_AQUI_COMO_FALLBACK")
 
-# === Caminhos para Arquivos e Pastas ===
-ASSETS_PATH = "assets"
+# === Caminhos para Arquivos e Pastas (AGORA ROBUSTOS) ===
+ASSETS_PATH = os.path.join(_BASE_DIR, "assets")
 IMAGES_PATH = os.path.join(ASSETS_PATH, "images")
 AUDIO_PATH = os.path.join(ASSETS_PATH, "audio")
-DATA_PATH = "data"
+DATA_PATH = os.path.join(_BASE_DIR, "data")
 RANKING_FILE = os.path.join(DATA_PATH, "ranking.json")
+
 
 # === Configuração de Imagens de Evento ===
 EVENT_IMAGES = {
@@ -101,9 +110,9 @@ MSG_CREDITS = (
 # === Versão do Bot ===
 def get_bot_version():
     """Lê a versão do arquivo version.txt."""
+    # Usa o caminho base para encontrar o arquivo de versão
+    version_file_path = os.path.join(_BASE_DIR, 'version.txt')
     try:
-        # Garante que o caminho seja relativo ao local do script
-        version_file_path = os.path.join(os.path.dirname(__file__), 'version.txt')
         with open(version_file_path, "r") as f:
             return f.read().strip()
     except FileNotFoundError:

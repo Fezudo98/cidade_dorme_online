@@ -7,7 +7,7 @@ import asyncio
 
 from roles.base_role import Role
 from roles.cidade_roles import Xerife, Prefeito, Medium
-from roles.viloes_roles import AssassinoAlfa, Cumplice
+from roles.viloes_roles import AssassinoAlfa, Cumplice, AssassinoJunior
 from roles.solo_roles import Bruxo, Praga
 
 logger = logging.getLogger(__name__)
@@ -203,6 +203,9 @@ class GameInstance:
         role = player_state.role
         logger.info(f"[Jogo #{self.text_channel.id}] Resetando flags para revivido: {player_state.member.display_name} ({role.name})")
 
+        # --- NOVA LINHA ADICIONADA AQUI ---
+        if isinstance(role, AssassinoJunior): self.junior_marked_target_id = None
+        
         if isinstance(role, Xerife): self.sheriff_shots_fired = 0; self.sheriff_revealed = False
         if isinstance(role, Bruxo): self.witch_potion_used = False; self.bruxo_major_action = None
         if isinstance(role, Medium): self.medium_talk_used = False
